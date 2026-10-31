@@ -48,6 +48,8 @@ replace:
   - .vscode/settings.json
   # Listed one by one, not as a glob: .github/workflows/README.md is merge.
   - .github/workflows/checks.yml
+  # The two -apply workflows were folded into their fix/build workflows
+  # (an `apply` job); the lines stay as tombstones so a sync removes them.
   - .github/workflows/moderate-bug-fix-apply.yml
   - .github/workflows/moderate-bug-fix.yml
   - .github/workflows/moderate-bug-triage.yml
@@ -99,6 +101,7 @@ replace:
   - scripts/runner-setup.d/README.md
   - scripts/check-dockerfile-versions.sh
   - scripts/image-scan.sh
+  - scripts/image-dast.sh
   - scripts/skopeo.sh
   - scripts/test-image-scripts.sh
 
@@ -157,6 +160,10 @@ ignore:
   - charts/
   - test/e2e/operator/
 
+  # The instance's ZAP baseline rule levels (seeded with a commented header;
+  # an instance adds its own FAIL/IGNORE lines, with a reason each).
+  - .zap/rules.tsv
+
   # Product/domain knowledge and working plans: instance-owned from the
   # moment it's instantiated.
   - docs/architecture.md
@@ -203,6 +210,10 @@ merge:
   - .github/CONTENTS.md
   - .github/renovate.json
   - .pre-commit-config.yaml
+  # Base's gitleaks config: the useDefault extension is base's, the
+  # [[allowlists]] entries are each instance's own (no include mechanism
+  # to split them), so a three-way merge, like .pre-commit-config.yaml.
+  - .gitleaks.toml
   - .mcp.json
   - .gitignore
   # The golangci-lint config: the linter set is the template's, an instance
