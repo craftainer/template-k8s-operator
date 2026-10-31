@@ -6,6 +6,31 @@
   [`devcontainers/ci`](https://github.com/devcontainers/ci)), under a
   per-run `COMPOSE_PROJECT_NAME` that a final step tears down. Runs as a
   two-leg `amd64`/`arm64` matrix (see "Architecture matrix" below).
+- `e2e.yml` — on push, pull requests and on demand: installs the pinned
+  kubectl, kind, helm and chainsaw (`scripts/develop.d/20-k8s-tools.sh`) on the
+  runner and runs `scripts/e2e.sh` (kind cluster, cert-manager, Chainsaw). The
+  same script runs locally.
+- `release-extras.yml` — manually dispatched with a `tag` input, right after
+  each `Release`: `gh workflow run release-extras.yml -f tag=vX.Y.Z`. Publishes
+  the Helm chart (OCI), the OLM bundle image and the file-based catalog image
+  to GHCR and signs the image index and those three, through
+  `sign-attest.yml`. Not automatic: `workflow_run` is flagged by zizmor
+  (dangerous-triggers) and not suppressed, and a release created with
+  `GITHUB_TOKEN` starts no workflows. A guard job requires the default-branch
+  ref, a release-tag-shaped input, a published release and a tag in the default
+  branch's history; a concurrency group per tag serialises runs. Stopgap for
+  the contract's missing sign/attest and post-`finalize` hooks (ADR 0003). It
+  never pushes over an existing chart, bundle or catalog tag; the `resume`
+  input (default false) finishes a part-way run: existing digests are signed
+  (skipped if they already verify) but never attested, because provenance must
+  describe the run that built the artifact (a warning names any without one;
+  cut a new patch version if it is required); only what is missing is
+  published and attested.
+- `sign-attest.yml` — reusable (`workflow_call`), called only by
+  `release-extras.yml`: `cosign sign` (keyless), a verification against its own
+  workflow identity, and (`provenance: true`) a GitHub build-provenance
+  attestation pushed to the registry. The only file with `id-token` and
+  `attestations` permissions.
 - `release.yml` — manually triggered. Takes a release channel
   (`alpha`/`beta`/`rc`/`full`) and a SemVer 2 bump
   (`major`/`minor`/`patch`/`none`), computes the next tag via

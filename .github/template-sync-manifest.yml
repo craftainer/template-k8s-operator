@@ -102,6 +102,38 @@ replace:
   - scripts/skopeo.sh
   - scripts/test-image-scripts.sh
 
+  # template-k8s-operator's tooling (docs/TEMPLATE.md, "Kubernetes operator
+  # template notes"): instance-agnostic, so fixes reach every operator through
+  # a sync. Listed one by one, not as globs: an instance's own scripts and
+  # workflows are ignore tier.
+  - operator.mk
+  - scripts/develop.d/10-go.sh
+  - scripts/develop.d/20-k8s-tools.sh
+  - scripts/post-create.d/10-go-download.sh
+  - scripts/go-coverage.sh
+  - scripts/govulncheck.sh
+  - scripts/check-generated.sh
+  - scripts/check-go-version.sh
+  - scripts/check-chart-sync.sh
+  - scripts/bundle.sh
+  - scripts/catalog.sh
+  - scripts/e2e.sh
+  - scripts/extras/check-absent.sh
+  - scripts/extras/check-dispatch.sh
+  - scripts/extras/refs.sh
+  - scripts/extras/stage-chart.sh
+  - scripts/test_operator_scripts.py
+  - bundle.Dockerfile.dockerignore
+  - catalog.Dockerfile.dockerignore
+  - test/e2e/chainsaw-config.yaml
+  - .github/workflows/e2e.yml
+  # Stopgaps for the release contract's missing extension points. When
+  # template-docker's release gains signing/attestation (NX1) and a post-
+  # `finalize` publish hook (NX4), delete these files and keep the lines as
+  # tombstones so a sync removes them from every operator.
+  - .github/workflows/release-extras.yml
+  - .github/workflows/sign-attest.yml
+
 ignore:
   # Each instance chooses its own license and copyright holder.
   - LICENSE
@@ -111,6 +143,19 @@ ignore:
   # The skeletons shipped here are examples to replace, never synced.
   - Dockerfile
   - image.mk
+
+  # The operator scaffold: an instance renames the module, owns its API
+  # types, controllers, webhooks, CRDs, chart, bundle base and e2e tests, so
+  # none of it can be synced. go.sum is derived from go.mod. List directories
+  # that hold no .go file in .github/template-sync-manifest.local.yml.
+  - go.mod
+  - go.sum
+  - "*.go"
+  - PROJECT
+  - hack/boilerplate.go.txt
+  - config/
+  - charts/
+  - test/e2e/operator/
 
   # Product/domain knowledge and working plans: instance-owned from the
   # moment it's instantiated.
@@ -130,8 +175,8 @@ ignore:
   # points"): an instance's own compose fragment and the scripts it drops
   # into the two hook directories.
   - .devcontainer/compose.instance.yml
-  - scripts/develop.d/*.sh
-  - scripts/post-create.d/*.sh
+  # (develop.d/*.sh and post-create.d/*.sh are not globbed here: this template
+  # ships a script in each, classified `replace` above.)
   - scripts/runner-setup.d/*.sh
 
   # An instance's own extra "ignore" patterns for paths this manifest can't
@@ -160,6 +205,9 @@ merge:
   - .pre-commit-config.yaml
   - .mcp.json
   - .gitignore
+  # The golangci-lint config: the linter set is the template's, an instance
+  # adds its own exclusions, so a three-way merge.
+  - .golangci.yml
   - scripts/README.md
   - docs/TEMPLATE.md
 

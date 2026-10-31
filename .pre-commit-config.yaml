@@ -21,7 +21,11 @@ repos:
         stages: [pre-commit, manual]
       - id: end-of-file-fixer
         stages: [pre-commit, manual]
+      # Helm templates are Go templates, not YAML, and kustomize resource
+      # files hold several documents.
       - id: check-yaml
+        args: [--allow-multiple-documents]
+        exclude: ^charts/chart/templates/
         stages: [pre-commit, manual]
       - id: check-toml
         stages: [pre-commit, manual]
@@ -124,4 +128,115 @@ repos:
         language: system
         files: ^(Makefile|scripts/(check-dockerfile-versions|image-scan|image-smoke|skopeo|test-image-scripts)\.sh)$
         pass_filenames: false
+        stages: [pre-commit, manual]
+
+  # template-k8s-operator's Go and Kubernetes gates (docs/TEMPLATE.md,
+  # "Kubernetes operator template notes"). Tools come from
+  # scripts/develop.d/10-go.sh and 20-k8s-tools.sh (controller-gen and
+  # setup-envtest are installed into bin/ by operator.mk).
+  - repo: local
+    hooks:
+      - id: golangci-fmt
+        name: golangci-lint fmt --diff (gofmt, goimports)
+        entry: golangci-lint fmt --diff
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit, manual]
+
+      - id: golangci-lint
+        name: golangci-lint run
+        entry: golangci-lint run
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit, manual]
+
+      - id: go-mod-tidy
+        name: go.mod / go.sum are tidy
+        entry: go mod tidy -diff
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push, manual]
+
+      # controller-gen output (CRDs, RBAC, webhook configuration, DeepCopy)
+      # is committed; this fails when it is stale.
+      - id: generated-current
+        name: generated files are current (make manifests generate)
+        entry: scripts/check-generated.sh
+        language: system
+        pass_filenames: false
+        files: ^(api/|internal/|config/|go\.mod|scripts/check-generated\.sh)
+        stages: [pre-push, manual]
+
+      # Unit tests and the envtest suites (a real kube-apiserver and etcd,
+      # fetched by setup-envtest) under the race detector, with the
+      # statement-coverage gate.
+      - id: go-test-coverage
+        name: go test -race (unit + envtest, 100% statement-coverage gate, COVERAGE_MIN)
+        entry: scripts/go-coverage.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push, manual]
+
+      - id: govulncheck
+        name: govulncheck (known vulnerabilities in reachable code of the manager)
+        # Online: reads vuln.go.dev. See scripts/govulncheck.sh for the mode.
+        entry: scripts/govulncheck.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push, manual]
+
+      - id: check-go-version
+        name: Go version agrees (10-go.sh, Dockerfile, go.mod)
+        entry: scripts/check-go-version.sh
+        language: system
+        pass_filenames: false
+        files: ^(scripts/develop\.d/10-go\.sh|Dockerfile|go\.mod|scripts/check-go-version\.sh)$
+        stages: [pre-commit, manual]
+
+      # The Helm chart lints strictly and matches config/; the OLM bundle
+      # validates with operator-sdk and as a file-based catalog with opm.
+      - id: helm-lint
+        name: helm lint --strict, chart matches config/
+        entry: make --no-print-directory helm-lint
+        language: system
+        pass_filenames: false
+        files: ^(charts/|config/|scripts/check-chart-sync\.sh|operator\.mk)
+        stages: [pre-commit, manual]
+
+      - id: bundle-validate
+        name: OLM bundle (operator-sdk) and catalog (opm) validate
+        entry: make --no-print-directory bundle-validate
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push, manual]
+
+      # Offline tests of the release-extras scripts, the workflows' shape and
+      # the bundle/catalog/chart scripts; no Docker, no cluster.
+      - id: operator-scripts-test
+        name: operator scripts and workflows tests
+        entry: python3 -I scripts/test_operator_scripts.py
+        language: system
+        pass_filenames: false
+        files: ^(scripts/(extras/|bundle\.sh|catalog\.sh|check-[a-z-]+\.sh|e2e\.sh|test_operator_scripts\.py)|\.github/workflows/(release-extras|sign-attest|e2e)\.yml|operator\.mk|image\.mk)
+        stages: [pre-commit, manual]
+
+  # Supply-chain scanner for the workflows: zizmor runs without suppressions
+  # (docs/TEMPLATE.md, "Checks"). Revs are tags, not SHAs: Renovate's
+  # pre-commit manager bumps tags directly. It is scoped to this template's
+  # own workflows for now: the base-owned ones in the template-docker v1.6.2
+  # snapshot this repository was created from still use unpinned action tags
+  # and are `replace` tier, so they cannot be fixed here; the first sync to
+  # template-docker >= v1.7 brings pinned ones, and this `files:` line is then
+  # removed so every workflow is scanned.
+  - repo: https://github.com/zizmorcore/zizmor-pre-commit
+    rev: v1.31.1
+    hooks:
+      - id: zizmor
+        files: ^\.github/workflows/(e2e|release-extras|sign-attest)\.yml$
         stages: [pre-commit, manual]
