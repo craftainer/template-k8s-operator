@@ -207,8 +207,10 @@ jobs:
           for kind in CHART BUNDLE CATALOG; do
             name="${kind}"; digest="${kind}_DIGEST"
             [ -n "${!digest}" ] || continue
-            if ! gh attestation verify "oci://${!name}@${!digest}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-              echo "::warning::${!name}@${!digest} was published by an earlier run and has NO provenance attestation; this run will sign it but will not attest it (provenance must describe the run that built it). Cut a new patch version if provenance is required."
+            if ! out=$(gh attestation verify "oci://${!name}@${!digest}" --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/sign-attest.yml" 2>&1); then
+              echo "::warning::${!name}@${!digest} was published by an earlier run and no provenance attestation could be verified for it (or the check itself failed: see the log); this run will sign it but will not attest it, because provenance must describe the run that built it. Cut a new patch version if provenance is required."
+              echo "$out"
             fi
           done
 
