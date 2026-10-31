@@ -21,8 +21,11 @@
   branch's history; a concurrency group per tag serialises runs. Stopgap for
   the contract's missing sign/attest and post-`finalize` hooks (ADR 0003). It
   never pushes over an existing chart, bundle or catalog tag; the `resume`
-  input (default false) finishes a part-way run by signing and attesting the
-  existing digests and publishing only what is missing.
+  input (default false) finishes a part-way run: existing digests are signed
+  (skipped if they already verify) but never attested, because provenance must
+  describe the run that built the artifact (a warning names any without one;
+  cut a new patch version if it is required); only what is missing is
+  published and attested.
 - `sign-attest.yml` — reusable (`workflow_call`), called only by
   `release-extras.yml`: `cosign sign` (keyless), a verification against its own
   workflow identity, and (`provenance: true`) a GitHub build-provenance

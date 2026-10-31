@@ -81,7 +81,18 @@ jobs:
         env:
           SUBJECT_NAME: ${{ inputs.subject-name }}
           SUBJECT_DIGEST: ${{ inputs.subject-digest }}
-        run: cosign sign --yes "${SUBJECT_NAME}@${SUBJECT_DIGEST}"
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # Signatures are additive, but a digest that already verifies (a
+          # resumed run) needs no second one.
+          if cosign verify "${SUBJECT_NAME}@${SUBJECT_DIGEST}" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            --certificate-identity-regexp "^https://github\.com/${REPOSITORY//./\\.}/\.github/workflows/sign-attest\.yml@" >/dev/null 2>&1; then
+            echo "already signed: ${SUBJECT_NAME}@${SUBJECT_DIGEST}"
+          else
+            cosign sign --yes "${SUBJECT_NAME}@${SUBJECT_DIGEST}"
+          fi
 
       - name: Attest the build provenance
         if: ${{ inputs.provenance }}

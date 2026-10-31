@@ -132,6 +132,26 @@ class CheckAbsent(unittest.TestCase):
         self.assertLess(guard, text.index("helm push"))
         self.assertLess(guard, text.index("--push"))
 
+    def test_a_resumed_artifact_is_signed_but_never_attested(self):
+        extras = self.code_of("release-extras.yml")
+        # Provenance is claimed only for what this run pushed ...
+        for kind in ("CHART", "BUNDLE", "CATALOG"):
+            with self.subTest(kind=kind):
+                self.assertIn(f'"provenance": e["{kind}_BUILT"] != ""', extras)
+                self.assertRegex(extras, rf"{kind}_BUILT: \$\{{\{{ steps\.[a-z]+\.outputs\.digest \}}\}}\n")
+        # ... never for the released image, which another workflow built.
+        self.assertIn('"provenance": False', extras)
+        # An existing artifact without provenance is named in a warning.
+        self.assertIn("gh attestation verify", extras)
+        self.assertIn("::warning::", extras)
+        self.assertIn("Cut a new patch version", extras)
+
+    def test_signing_skips_a_digest_that_already_verifies(self):
+        text = self.code_of("sign-attest.yml")
+        sign = text[text.index("name: Sign\n") : text.index("Attest the build provenance")]
+        self.assertLess(sign.index("cosign verify"), sign.index("cosign sign --yes"))
+        self.assertIn("already signed", sign)
+
     def code_of(self, name):
         return "\n".join(line for line in (WORKFLOWS / name).read_text().splitlines() if not line.lstrip().startswith("#"))
 

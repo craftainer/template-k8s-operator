@@ -21,8 +21,10 @@
 # therefore fails if any of the three tags exists (scripts/extras/check-absent.sh).
 # To finish a run that failed part-way (say the chart and bundle were pushed
 # and signing failed), dispatch again with resume=true: an artifact whose tag
-# exists is not pushed again, its existing digest is signed and attested
-# (signing a digest again is additive); the missing ones are published.
+# exists is not pushed again, its existing digest is signed (additive; skipped
+# when it already verifies) but NOT attested, because SLSA provenance must
+# describe the run that built the artifact; a warning names any such artifact
+# that has no provenance. The missing ones are published and attested as usual.
 #
 # Needs the repository variable OCI_REGISTRY=ghcr.io (the same one the image
 # release uses). The signing and attestation happen in sign-attest.yml.
@@ -187,6 +189,29 @@ jobs:
           if [ "$RESUME" = "true" ]; then flag=(--resume); fi
           scripts/extras/check-absent.sh "${flag[@]}" "$VERSION" "chart=$CHART" "bundle=$BUNDLE" "catalog=$CATALOG" >> "$GITHUB_OUTPUT"
 
+      # An artifact an earlier run published is only signed here, never
+      # attested: SLSA provenance must describe the run that produced the
+      # artifact. If that run died before attesting, say so loudly.
+      - name: Warn about resumed artifacts without provenance
+        if: steps.existing.outputs.chart_digest != '' || steps.existing.outputs.bundle_digest != '' || steps.existing.outputs.catalog_digest != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHART: ${{ steps.refs.outputs.chart }}
+          CHART_DIGEST: ${{ steps.existing.outputs.chart_digest }}
+          BUNDLE: ${{ steps.refs.outputs.bundle }}
+          BUNDLE_DIGEST: ${{ steps.existing.outputs.bundle_digest }}
+          CATALOG: ${{ steps.refs.outputs.catalog }}
+          CATALOG_DIGEST: ${{ steps.existing.outputs.catalog_digest }}
+        run: |
+          set -uo pipefail
+          for kind in CHART BUNDLE CATALOG; do
+            name="${kind}"; digest="${kind}_DIGEST"
+            [ -n "${!digest}" ] || continue
+            if ! gh attestation verify "oci://${!name}@${!digest}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              echo "::warning::${!name}@${!digest} was published by an earlier run and has NO provenance attestation; this run will sign it but will not attest it (provenance must describe the run that built it). Cut a new patch version if provenance is required."
+            fi
+          done
+
       - name: Package and push the Helm chart
         id: chart
         if: steps.existing.outputs.chart_digest == ''
@@ -246,9 +271,12 @@ jobs:
           IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
           CHART: ${{ steps.refs.outputs.chart }}
           CHART_DIGEST: ${{ steps.chart.outputs.digest || steps.existing.outputs.chart_digest }}
+          CHART_BUILT: ${{ steps.chart.outputs.digest }}
           BUNDLE: ${{ steps.refs.outputs.bundle }}
           BUNDLE_DIGEST: ${{ steps.bundle.outputs.digest || steps.existing.outputs.bundle_digest }}
+          BUNDLE_BUILT: ${{ steps.bundle.outputs.digest }}
           CATALOG: ${{ steps.refs.outputs.catalog }}
+          CATALOG_BUILT: ${{ steps.catalog.outputs.digest }}
           CATALOG_DIGEST: ${{ steps.catalog.outputs.digest || steps.existing.outputs.catalog_digest }}
         run: |
           set -euo pipefail
@@ -259,9 +287,9 @@ jobs:
           e = os.environ
           subjects = [
               {"name": e["IMAGE"], "digest": e["IMAGE_DIGEST"], "provenance": False},
-              {"name": e["CHART"], "digest": e["CHART_DIGEST"], "provenance": True},
-              {"name": e["BUNDLE"], "digest": e["BUNDLE_DIGEST"], "provenance": True},
-              {"name": e["CATALOG"], "digest": e["CATALOG_DIGEST"], "provenance": True},
+              {"name": e["CHART"], "digest": e["CHART_DIGEST"], "provenance": e["CHART_BUILT"] != ""},
+              {"name": e["BUNDLE"], "digest": e["BUNDLE_DIGEST"], "provenance": e["BUNDLE_BUILT"] != ""},
+              {"name": e["CATALOG"], "digest": e["CATALOG_DIGEST"], "provenance": e["CATALOG_BUILT"] != ""},
           ]
           print("subjects=" + json.dumps(subjects, separators=(",", ":")))
           PY

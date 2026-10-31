@@ -54,7 +54,11 @@ gh workflow run release-extras.yml -f tag=vX.Y.Z
 It never publishes over an existing tag. If a run failed part-way (say the
 chart and bundle were pushed and signing failed), finish it with
 `-f resume=true`: artifacts whose tag exists are not pushed again, their
-existing digests are signed and attested, and missing ones are published.
+existing digests are signed (not again if they already verify) but never
+attested, and missing ones are published and attested. SLSA provenance must
+describe the run that built the artifact, so a resumed run does not claim it:
+an existing artifact without provenance is named in a warning, and if
+provenance is required for it, cut a new patch version instead.
 
 ## Creating an operator from this template
 
