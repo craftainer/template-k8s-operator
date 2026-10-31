@@ -1,13 +1,5 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-<<<<<<< /home/runner/work/template-k8s-operator/template-k8s-operator/.github/renovate.json
-  "extends": [
-    "config:recommended"
-  ],
-  "schedule": [
-    "before 6am on monday"
-  ],
-=======
   "extends": ["config:recommended", "helpers:pinGitHubActionDigests"],
   "schedule": ["before 6am on monday"],
   "pre-commit": {
@@ -17,7 +9,6 @@
     "labels": ["security"]
   },
   "osvVulnerabilityAlerts": true,
->>>>>>> /tmp/template-new/.github/renovate.json
   "packageRules": [
     {
       "matchUpdateTypes": [
@@ -175,7 +166,6 @@
       "depNameTemplate": "aquasec/trivy"
     },
     {
-<<<<<<< /home/runner/work/template-k8s-operator/template-k8s-operator/.github/renovate.json
       "customType": "regex",
       "managerFilePatterns": [
         "/^operator\\.mk$/"
@@ -202,7 +192,8 @@
       "matchStrings": [
         "# renovate: datasource=(?<datasource>.*?) depName=(?<depName>.*?)\\s*\\n\\s*cosign-release: (?<currentValue>\\S+)"
       ]
-=======
+    },
+    {
       "description": "The ZAP image pinned by tag and digest in scripts/image-dast.sh; Renovate updates both.",
       "customType": "regex",
       "managerFilePatterns": [
@@ -213,7 +204,6 @@
       ],
       "datasourceTemplate": "docker",
       "depNameTemplate": "ghcr.io/zaproxy/zaproxy"
->>>>>>> /tmp/template-new/.github/renovate.json
     }
   ],
   "postUpdateOptions": [

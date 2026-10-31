@@ -147,7 +147,6 @@ ignore:
   - Dockerfile
   - image.mk
 
-<<<<<<< /home/runner/work/template-k8s-operator/template-k8s-operator/.github/template-sync-manifest.yml
   # The operator scaffold: an instance renames the module, owns its API
   # types, controllers, webhooks, CRDs, chart, bundle base and e2e tests, so
   # none of it can be synced. go.sum is derived from go.mod. List directories
@@ -160,11 +159,10 @@ ignore:
   - config/
   - charts/
   - test/e2e/operator/
-=======
+
   # The instance's ZAP baseline rule levels (seeded with a commented header;
   # an instance adds its own FAIL/IGNORE lines, with a reason each).
   - .zap/rules.tsv
->>>>>>> /tmp/template-new/.github/template-sync-manifest.yml
 
   # Product/domain knowledge and working plans: instance-owned from the
   # moment it's instantiated.

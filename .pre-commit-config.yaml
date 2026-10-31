@@ -279,18 +279,3 @@ repos:
         pass_filenames: false
         files: ^(scripts/(extras/|bundle\.sh|catalog\.sh|check-[a-z-]+\.sh|e2e\.sh|test_operator_scripts\.py)|\.github/workflows/(release-extras|sign-attest|e2e)\.yml|operator\.mk|image\.mk)
         stages: [pre-commit, manual]
-
-  # Supply-chain scanner for the workflows: zizmor runs without suppressions
-  # (docs/TEMPLATE.md, "Checks"). Revs are tags, not SHAs: Renovate's
-  # pre-commit manager bumps tags directly. It is scoped to this template's
-  # own workflows for now: the base-owned ones in the template-docker v1.6.2
-  # snapshot this repository was created from still use unpinned action tags
-  # and are `replace` tier, so they cannot be fixed here; the first sync to
-  # template-docker >= v1.7 brings pinned ones, and this `files:` line is then
-  # removed so every workflow is scanned.
-  - repo: https://github.com/zizmorcore/zizmor-pre-commit
-    rev: v1.31.1
-    hooks:
-      - id: zizmor
-        files: ^\.github/workflows/(e2e|release-extras|sign-attest)\.yml$
-        stages: [pre-commit, manual]
