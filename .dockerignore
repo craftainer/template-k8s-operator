@@ -23,7 +23,11 @@ config
 bundle
 catalog
 test
-scripts
+# The devcontainer build shares this context and COPYs scripts/develop.sh and
+# scripts/develop.d/, so keep those.
+scripts/*
+!scripts/develop.sh
+!scripts/develop.d
 *.mk
 Makefile
 PROJECT
