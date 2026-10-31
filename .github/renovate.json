@@ -1,11 +1,23 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+<<<<<<< /home/runner/work/template-k8s-operator/template-k8s-operator/.github/renovate.json
   "extends": [
     "config:recommended"
   ],
   "schedule": [
     "before 6am on monday"
   ],
+=======
+  "extends": ["config:recommended", "helpers:pinGitHubActionDigests"],
+  "schedule": ["before 6am on monday"],
+  "pre-commit": {
+    "enabled": true
+  },
+  "vulnerabilityAlerts": {
+    "labels": ["security"]
+  },
+  "osvVulnerabilityAlerts": true,
+>>>>>>> /tmp/template-new/.github/renovate.json
   "packageRules": [
     {
       "matchUpdateTypes": [
@@ -34,6 +46,11 @@
       ],
       "groupName": "python minor upgrade",
       "automerge": false
+    },
+    {
+      "description": "Pin container images to their digest. Scoped to the docker managers on purpose: a global pinDigests also hits the pre-commit manager, whose tag revs can't be converted to digests (the update fails). GitHub Actions are pinned by helpers:pinGitHubActionDigests instead.",
+      "matchManagers": ["dockerfile", "docker-compose"],
+      "pinDigests": true
     },
     {
       "description": "Renovate can't regenerate .devcontainer/devcontainer-lock.json, so features are bumped by hand together with it (see .devcontainer/README.md).",
@@ -158,6 +175,7 @@
       "depNameTemplate": "aquasec/trivy"
     },
     {
+<<<<<<< /home/runner/work/template-k8s-operator/template-k8s-operator/.github/renovate.json
       "customType": "regex",
       "managerFilePatterns": [
         "/^operator\\.mk$/"
@@ -184,6 +202,18 @@
       "matchStrings": [
         "# renovate: datasource=(?<datasource>.*?) depName=(?<depName>.*?)\\s*\\n\\s*cosign-release: (?<currentValue>\\S+)"
       ]
+=======
+      "description": "The ZAP image pinned by tag and digest in scripts/image-dast.sh; Renovate updates both.",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^scripts/image-dast\\.sh$/"
+      ],
+      "matchStrings": [
+        "zap=ghcr\\.io/zaproxy/zaproxy:(?<currentValue>[0-9][^@\\s]*)@(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker",
+      "depNameTemplate": "ghcr.io/zaproxy/zaproxy"
+>>>>>>> /tmp/template-new/.github/renovate.json
     }
   ],
   "postUpdateOptions": [
