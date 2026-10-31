@@ -19,7 +19,10 @@
   `GITHUB_TOKEN` starts no workflows. A guard job requires the default-branch
   ref, a release-tag-shaped input, a published release and a tag in the default
   branch's history; a concurrency group per tag serialises runs. Stopgap for
-  the contract's missing sign/attest and post-`finalize` hooks (ADR 0003).
+  the contract's missing sign/attest and post-`finalize` hooks (ADR 0003). It
+  never pushes over an existing chart, bundle or catalog tag; the `resume`
+  input (default false) finishes a part-way run by signing and attesting the
+  existing digests and publishing only what is missing.
 - `sign-attest.yml` — reusable (`workflow_call`), called only by
   `release-extras.yml`: `cosign sign` (keyless), a verification against its own
   workflow identity, and (`provenance: true`) a GitHub build-provenance

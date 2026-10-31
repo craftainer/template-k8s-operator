@@ -19,6 +19,10 @@
 # bundle or catalog under the same version would give it a new digest and
 # orphan the signatures and attestations of the first. The publish job
 # therefore fails if any of the three tags exists (scripts/extras/check-absent.sh).
+# To finish a run that failed part-way (say the chart and bundle were pushed
+# and signing failed), dispatch again with resume=true: an artifact whose tag
+# exists is not pushed again, its existing digest is signed and attested
+# (signing a digest again is additive); the missing ones are published.
 #
 # Needs the repository variable OCI_REGISTRY=ghcr.io (the same one the image
 # release uses). The signing and attestation happen in sign-attest.yml.
@@ -31,6 +35,11 @@ on:
         description: Release tag to publish the extras for, e.g. v1.2.3
         type: string
         required: true
+      resume:
+        description: Finish a part-way run - sign the artifacts already published, publish the missing ones, never re-push
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -116,6 +125,7 @@ jobs:
       OCI_IMAGE_NAME: ${{ vars.OCI_IMAGE_NAME }}
       OLM_CHANNELS: ${{ vars.OLM_CHANNELS || 'alpha' }}
       OLM_DEFAULT_CHANNEL: ${{ vars.OLM_DEFAULT_CHANNEL || 'alpha' }}
+      RESUME: ${{ inputs.resume }}
     steps:
       - name: Check out the release tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -162,16 +172,24 @@ jobs:
           fi
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
+      # Without resume, any existing tag fails the run. With resume, the
+      # digests of the existing ones are output and those steps are skipped.
       - name: Refuse to publish over an existing tag
+        id: existing
         env:
           GITHUB_TOKEN: ${{ github.token }}
           CHART: ${{ steps.refs.outputs.chart }}
           BUNDLE: ${{ steps.refs.outputs.bundle }}
           CATALOG: ${{ steps.refs.outputs.catalog }}
-        run: scripts/extras/check-absent.sh "$VERSION" "$CHART" "$BUNDLE" "$CATALOG"
+        run: |
+          set -euo pipefail
+          flag=()
+          if [ "$RESUME" = "true" ]; then flag=(--resume); fi
+          scripts/extras/check-absent.sh "${flag[@]}" "$VERSION" "chart=$CHART" "bundle=$BUNDLE" "catalog=$CATALOG" >> "$GITHUB_OUTPUT"
 
       - name: Package and push the Helm chart
         id: chart
+        if: steps.existing.outputs.chart_digest == ''
         env:
           IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
           CHART_REPO: ${{ steps.refs.outputs.chart_repo }}
@@ -188,6 +206,7 @@ jobs:
       # The CSV is generated for the released image's index digest.
       - name: Generate the bundle and push its image
         id: bundle
+        if: steps.existing.outputs.bundle_digest == ''
         env:
           IMAGE: ${{ steps.refs.outputs.image }}
           IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
@@ -204,9 +223,10 @@ jobs:
 
       - name: Build the catalog and push its image
         id: catalog
+        if: steps.existing.outputs.catalog_digest == ''
         env:
           BUNDLE: ${{ steps.refs.outputs.bundle }}
-          BUNDLE_DIGEST: ${{ steps.bundle.outputs.digest }}
+          BUNDLE_DIGEST: ${{ steps.bundle.outputs.digest || steps.existing.outputs.bundle_digest }}
           CATALOG: ${{ steps.refs.outputs.catalog }}
         run: |
           set -euo pipefail
@@ -225,11 +245,11 @@ jobs:
           IMAGE: ${{ steps.refs.outputs.image }}
           IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
           CHART: ${{ steps.refs.outputs.chart }}
-          CHART_DIGEST: ${{ steps.chart.outputs.digest }}
+          CHART_DIGEST: ${{ steps.chart.outputs.digest || steps.existing.outputs.chart_digest }}
           BUNDLE: ${{ steps.refs.outputs.bundle }}
-          BUNDLE_DIGEST: ${{ steps.bundle.outputs.digest }}
+          BUNDLE_DIGEST: ${{ steps.bundle.outputs.digest || steps.existing.outputs.bundle_digest }}
           CATALOG: ${{ steps.refs.outputs.catalog }}
-          CATALOG_DIGEST: ${{ steps.catalog.outputs.digest }}
+          CATALOG_DIGEST: ${{ steps.catalog.outputs.digest || steps.existing.outputs.catalog_digest }}
         run: |
           set -euo pipefail
           # The image was built by the Release workflow, not here: only the

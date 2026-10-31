@@ -51,6 +51,11 @@ and to sign and attest them:
 gh workflow run release-extras.yml -f tag=vX.Y.Z
 ```
 
+It never publishes over an existing tag. If a run failed part-way (say the
+chart and bundle were pushed and signing failed), finish it with
+`-f resume=true`: artifacts whose tag exists are not pushed again, their
+existing digests are signed and attested, and missing ones are published.
+
 ## Creating an operator from this template
 
 1. Create the repository from this template, then set

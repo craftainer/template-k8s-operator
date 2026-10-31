@@ -61,41 +61,70 @@ class CheckDispatch(unittest.TestCase):
 class CheckAbsent(unittest.TestCase):
     """check-absent.sh against a fake curl that answers like ghcr.io."""
 
-    def check(self, code, *refs):
+    def check(self, answers, *args, resume=False, refs=None):
+        """answers maps a package path fragment to (http code, digest or None)."""
         with tempfile.TemporaryDirectory() as tmp:
             fake = Path(tmp) / "curl"
-            fake.write_text(
-                "#!/usr/bin/env bash\n"
-                'case "$*" in\n'
-                '  *"/token?"*) echo \'{"token":"t"}\' ;;\n'
-                f'  *) printf "%s" "{code}" ;;\n'
-                "esac\n"
-            )
+            lines = ["#!/usr/bin/env bash", 'case "$*" in', '  *"/token?"*) echo \'{"token":"t"}\' ;;']
+            for fragment, (code, digest) in answers.items():
+                header = f"Docker-Content-Digest: {digest}\r\n" if digest else ""
+                lines.append(f'  *"/v2/{fragment}/manifests/"*) printf "HTTP/2 {code}\\r\\n{header}\\nHTTP_CODE={code}\\n" ;;')
+            lines += ['  *) printf "\\nHTTP_CODE=500\\n" ;;', "esac", ""]
+            fake.write_text("\n".join(lines))
             fake.chmod(0o755)
             env = {"PATH": f"{tmp}:{os.environ['PATH']}", "GITHUB_TOKEN": "x"}
-            return run(["scripts/extras/check-absent.sh", "1.0.0", *(refs or ("ghcr.io/o/charts/c",))], env=env)
+            cmd = ["scripts/extras/check-absent.sh"] + (["--resume"] if resume else []) + ["1.0.0"]
+            return run(cmd + (refs or ["chart=ghcr.io/o/charts/c", "bundle=ghcr.io/o/b"]), env=env)
 
     def test_absent_tags_pass(self):
-        self.assertEqual(self.check(404, "ghcr.io/o/charts/c", "ghcr.io/o/b").returncode, 0)
+        r = self.check({"o/charts/c": (404, None), "o/b": (404, None)})
+        self.assertEqual((r.returncode, r.stdout), (0, ""))
 
     def test_an_existing_tag_is_refused(self):
-        r = self.check(200)
+        r = self.check({"o/charts/c": (200, DIGEST), "o/b": (404, None)})
         self.assertEqual(r.returncode, 1)
         self.assertIn("already exists", r.stderr)
+        self.assertIn("resume=true", r.stderr)
+        self.assertEqual(r.stdout, "")
 
-    def test_an_unclear_answer_is_refused(self):
-        r = self.check(500)
+    def test_resume_prints_the_digest_of_what_exists_and_nothing_for_the_rest(self):
+        r = self.check({"o/charts/c": (200, DIGEST), "o/b": (404, None)}, resume=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), f"chart_digest={DIGEST}")
+
+    def test_resume_without_anything_published_publishes_everything(self):
+        r = self.check({"o/charts/c": (404, None), "o/b": (404, None)}, resume=True)
+        self.assertEqual((r.returncode, r.stdout), (0, ""))
+
+    def test_resume_refuses_an_existing_tag_without_a_digest(self):
+        r = self.check({"o/charts/c": (200, None), "o/b": (404, None)}, resume=True)
         self.assertEqual(r.returncode, 1)
-        self.assertIn("HTTP 500", r.stderr)
+        self.assertIn("no digest", r.stderr)
 
-    def test_other_registries_are_refused(self):
-        self.assertEqual(self.check(404, "docker.io/o/b").returncode, 2)
+    def test_an_unclear_answer_is_refused_even_when_resuming(self):
+        for resume in (False, True):
+            with self.subTest(resume=resume):
+                r = self.check({"o/charts/c": (500, None), "o/b": (404, None)}, resume=resume)
+                self.assertEqual(r.returncode, 1)
+                self.assertIn("HTTP 500", r.stderr)
+
+    def test_other_registries_and_unlabelled_refs_are_refused(self):
+        self.assertEqual(self.check({}, refs=["bundle=docker.io/o/b"]).returncode, 2)
+        self.assertEqual(self.check({}, refs=["ghcr.io/o/b"]).returncode, 2)
 
     def test_usage_and_token(self):
         self.assertEqual(run(["scripts/extras/check-absent.sh", "1.0.0"]).returncode, 2)
         env = {k: v for k, v in os.environ.items() if k != "GITHUB_TOKEN"}
-        r = subprocess.run(["scripts/extras/check-absent.sh", "1.0.0", "ghcr.io/o/b"], cwd=ROOT, env=env, capture_output=True, text=True, check=False)
+        r = subprocess.run(["scripts/extras/check-absent.sh", "1.0.0", "bundle=ghcr.io/o/b"], cwd=ROOT, env=env, capture_output=True, text=True, check=False)
         self.assertNotEqual(r.returncode, 0)
+
+    def test_resume_skips_the_push_steps_of_what_exists(self):
+        text = self.code_of("release-extras.yml")
+        self.assertRegex(text, r"(?m)^      resume:\n(?:        .*\n)*?        default: false")
+        for kind in ("chart", "bundle", "catalog"):
+            with self.subTest(kind=kind):
+                self.assertIn(f"if: steps.existing.outputs.{kind}_digest == ''", text)
+                self.assertIn(f"steps.existing.outputs.{kind}_digest }}}}", text)
 
     def test_the_publish_job_runs_it_before_any_push(self):
         text = self.code_of("release-extras.yml")

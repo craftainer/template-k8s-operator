@@ -806,7 +806,11 @@ release extras. The sync state names `craftainer/template-docker`.
   not cover (provenance of the image index, multi-bundle catalogs). It never
   publishes over an existing tag: if the chart, bundle or catalog tag for the
   version exists, the run fails (`scripts/extras/check-absent.sh`), because a
-  re-push would orphan the signatures and attestations of the first.
+  re-push would orphan the signatures and attestations of the first. To
+  finish a run that failed part-way, dispatch again with `-f resume=true`: an
+  artifact whose tag exists is not pushed again, its existing digest is signed
+  and attested (additive), and the missing ones are published; the bundle CSV
+  and catalog keep pinning the resolved digests.
 - **Sample controller conventions.** Operators copy `internal/controller`.
   A ConfigMap is taken over only if the Greeting controls it, or if it has no
   controller and carries the `craftainer.dev/managed-by` label (one released by

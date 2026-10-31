@@ -54,7 +54,8 @@
   `dockerfile`).
 - `e2e.sh` — the kind + Chainsaw end-to-end run, always followed by teardown.
 - `extras/` — what `release-extras.yml` calls: `check-dispatch.sh` (the
-  dispatch guard), `refs.sh` (artifact names), `stage-chart.sh` (the chart with
+  dispatch guard), `check-absent.sh` (refuses to publish over an existing tag;
+  with `--resume` prints the digests of what exists), `refs.sh` (artifact names), `stage-chart.sh` (the chart with
   the image digest pinned).
 - `test_operator_scripts.py` — offline tests of all of the above and of the
   workflows' shape, run by the `operator-scripts-test` hook.
