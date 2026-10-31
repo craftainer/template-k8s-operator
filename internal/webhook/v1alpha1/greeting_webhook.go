@@ -41,7 +41,14 @@ func (v *GreetingValidator) ValidateCreate(_ context.Context, obj *samplev1alpha
 }
 
 // ValidateUpdate implements admission.Validator.
+//
+// An object that is being deleted is always admitted: the only updates left
+// on it are the finalizer removal that completes the delete, and that must
+// never be blocked (for example while the webhook's own pod is down).
 func (v *GreetingValidator) ValidateUpdate(_ context.Context, _, newObj *samplev1alpha1.Greeting) (admission.Warnings, error) {
+	if !newObj.DeletionTimestamp.IsZero() {
+		return nil, nil
+	}
 	greetinglog.Info("validating update", "name", newObj.GetName())
 	return nil, validate(newObj)
 }

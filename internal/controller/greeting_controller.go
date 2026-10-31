@@ -40,10 +40,28 @@ const (
 
 	// MessageKey is the ConfigMap key the Greeting's message is written to.
 	MessageKey = "message"
+
+	// MinPollInterval is the smallest drift-check interval an annotation can
+	// ask for; a smaller value is raised to it, so no object can make the
+	// operator requeue in a hot loop.
+	MinPollInterval = 10 * time.Second
+
+	// ManagedByLabel marks a ConfigMap the operator provisioned. It stays on
+	// a ConfigMap released by deletionPolicy Retain, which is how a
+	// re-created Greeting of the same name recognises it and re-adopts it.
+	ManagedByLabel = "craftainer.dev/managed-by"
+	// ManagedByValue is the value of ManagedByLabel.
+	ManagedByValue = "greeting-operator"
+
+	// conflictRequeue is the delay before retrying after a write conflict.
+	conflictRequeue = time.Second
 )
 
 // ErrNameCollision means the ConfigMap a Greeting would provision already exists
-// and belongs to someone else.
+// and belongs to someone else. The ownership rule: an existing ConfigMap is
+// taken over only if this Greeting controls it, or if it has no controller and
+// carries ManagedByLabel (one released by deletionPolicy Retain). Anything
+// else, including an object without the label, is never touched.
 var ErrNameCollision = errors.New("name collision")
 
 // +kubebuilder:rbac:groups=sample.craftainer.dev,resources=greetings,verbs=get;list;watch;update;patch
@@ -62,6 +80,16 @@ type GreetingReconciler struct {
 // Reconcile moves the cluster towards the Greeting's spec.
 func (r *GreetingReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, err error) {
 	defer func() { countReconcile(err) }()
+	result, err = r.reconcile(ctx, req)
+	if apierrors.IsConflict(err) {
+		// Someone else wrote the object first. That is routine, not a failure:
+		// retry shortly against fresh state, without an error or an Event.
+		return ctrl.Result{RequeueAfter: conflictRequeue}, nil
+	}
+	return result, err
+}
+
+func (r *GreetingReconciler) reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
 	var greeting samplev1alpha1.Greeting
@@ -80,6 +108,9 @@ func (r *GreetingReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 	}
 
 	op, err := r.syncConfigMap(ctx, &greeting)
+	if apierrors.IsConflict(err) {
+		return ctrl.Result{}, err
+	}
 	if err != nil {
 		r.recordFailure(ctx, &greeting, err)
 		return ctrl.Result{}, err
@@ -89,12 +120,18 @@ func (r *GreetingReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 		r.Recorder.Eventf(&greeting, nil, corev1.EventTypeNormal, "Synced", "Sync", "ConfigMap %s %s", greeting.Name, op)
 	}
 
+	interval, warning := pollInterval(&greeting)
+	if warning != "" && greeting.Status.ObservedGeneration != greeting.Generation {
+		// Once per generation: later reconciles of the same spec stay quiet.
+		r.Recorder.Eventf(&greeting, nil, corev1.EventTypeWarning, "InvalidPollInterval", "Sync", "%s", warning)
+	}
+
 	greeting.Status.ConfigMapName = greeting.Name
 	setConditions(&greeting, metav1.ConditionTrue, "ReconcileSuccess", "the ConfigMap matches the spec")
 	if err := r.Status().Update(ctx, &greeting); err != nil {
 		return ctrl.Result{}, err
 	}
-	return ctrl.Result{RequeueAfter: r.pollInterval(&greeting)}, nil
+	return ctrl.Result{RequeueAfter: interval}, nil
 }
 
 // syncConfigMap creates or updates the ConfigMap the Greeting provisions.
@@ -103,15 +140,25 @@ func (r *GreetingReconciler) syncConfigMap(ctx context.Context, greeting *sample
 	return controllerutil.CreateOrUpdate(ctx, r.Client, cm, func() error {
 		// Never take over an object this Greeting did not create: the name is
 		// derived from the Greeting, so a collision is a conflict, not a hint.
-		if cm.ResourceVersion != "" && !metav1.IsControlledBy(cm, greeting) { // an existing object
+		if cm.ResourceVersion != "" && !metav1.IsControlledBy(cm, greeting) && !released(cm) { // an existing object
 			return fmt.Errorf("%w: ConfigMap %s/%s exists and is not controlled by this Greeting", ErrNameCollision, cm.Namespace, cm.Name)
 		}
 		if cm.Data == nil {
 			cm.Data = map[string]string{}
 		}
+		if cm.Labels == nil {
+			cm.Labels = map[string]string{}
+		}
+		cm.Labels[ManagedByLabel] = ManagedByValue
 		cm.Data[MessageKey] = greeting.Spec.Message
 		return controllerutil.SetControllerReference(greeting, cm, r.Scheme)
 	})
+}
+
+// released reports whether cm was provisioned by the operator and then let go
+// by deletionPolicy Retain: it has no controller and still carries the label.
+func released(cm *corev1.ConfigMap) bool {
+	return metav1.GetControllerOf(cm) == nil && cm.Labels[ManagedByLabel] == ManagedByValue
 }
 
 // finalize applies the deletion policy, then releases the Greeting.
@@ -120,6 +167,7 @@ func (r *GreetingReconciler) finalize(ctx context.Context, greeting *samplev1alp
 		return nil
 	}
 	cm := &corev1.ConfigMap{}
+	done := false // whether an owned ConfigMap was actually deleted or released
 	err := r.Get(ctx, client.ObjectKeyFromObject(greeting), cm)
 	switch {
 	case apierrors.IsNotFound(err):
@@ -136,12 +184,16 @@ func (r *GreetingReconciler) finalize(ctx context.Context, greeting *samplev1alp
 		if err := r.Update(ctx, cm); err != nil {
 			return err
 		}
+		done = true
 	default:
 		if err := r.Delete(ctx, cm); client.IgnoreNotFound(err) != nil {
 			return err
 		}
+		done = true
 	}
-	r.Recorder.Eventf(greeting, nil, corev1.EventTypeNormal, "Deleted", "Delete", "released ConfigMap %s (%s)", greeting.Name, greeting.Spec.DeletionPolicy)
+	if done {
+		r.Recorder.Eventf(greeting, nil, corev1.EventTypeNormal, "Deleted", "Delete", "released ConfigMap %s (%s)", greeting.Name, greeting.Spec.DeletionPolicy)
+	}
 	controllerutil.RemoveFinalizer(greeting, Finalizer)
 	return r.Update(ctx, greeting)
 }
@@ -160,18 +212,23 @@ func (r *GreetingReconciler) recordFailure(ctx context.Context, greeting *sample
 	}
 }
 
-// pollInterval returns the object's drift-check interval: the annotation if it
-// parses as a positive duration, else the default (with a Warning Event).
-func (r *GreetingReconciler) pollInterval(greeting *samplev1alpha1.Greeting) time.Duration {
+// pollInterval returns the object's drift-check interval and, when the
+// annotation is unusable, a message saying what was done instead: the
+// annotation is used if it parses as a duration of at least MinPollInterval; a
+// shorter one is raised to it, and anything else falls back to the default.
+func pollInterval(greeting *samplev1alpha1.Greeting) (time.Duration, string) {
 	raw, ok := greeting.Annotations[PollIntervalAnnotation]
 	if !ok {
-		return DefaultPollInterval
+		return DefaultPollInterval, ""
 	}
-	if d, err := time.ParseDuration(raw); err == nil && d > 0 {
-		return d
+	d, err := time.ParseDuration(raw)
+	switch {
+	case err != nil || d <= 0:
+		return DefaultPollInterval, fmt.Sprintf("ignoring %s=%q, using %s", PollIntervalAnnotation, raw, DefaultPollInterval)
+	case d < MinPollInterval:
+		return MinPollInterval, fmt.Sprintf("raising %s=%q to the minimum %s", PollIntervalAnnotation, raw, MinPollInterval)
 	}
-	r.Recorder.Eventf(greeting, nil, corev1.EventTypeWarning, "InvalidPollInterval", "Sync", "ignoring %s=%q, using %s", PollIntervalAnnotation, raw, DefaultPollInterval)
-	return DefaultPollInterval
+	return d, ""
 }
 
 // setConditions sets Ready and Synced together. The operator sets both on

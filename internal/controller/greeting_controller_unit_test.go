@@ -267,28 +267,115 @@ func TestPollInterval(t *testing.T) {
 	cases := map[string]struct {
 		annotations map[string]string
 		want        time.Duration
-		warns       bool
+		warning     string
 	}{
-		"absent":   {nil, DefaultPollInterval, false},
-		"valid":    {map[string]string{PollIntervalAnnotation: "30s"}, 30 * time.Second, false},
-		"garbage":  {map[string]string{PollIntervalAnnotation: "soon"}, DefaultPollInterval, true},
-		"negative": {map[string]string{PollIntervalAnnotation: "-1m"}, DefaultPollInterval, true},
-		"zero":     {map[string]string{PollIntervalAnnotation: "0s"}, DefaultPollInterval, true},
+		"absent":    {nil, DefaultPollInterval, ""},
+		"valid":     {map[string]string{PollIntervalAnnotation: "30s"}, 30 * time.Second, ""},
+		"minimum":   {map[string]string{PollIntervalAnnotation: "10s"}, MinPollInterval, ""},
+		"too short": {map[string]string{PollIntervalAnnotation: "1ms"}, MinPollInterval, "raising"},
+		"garbage":   {map[string]string{PollIntervalAnnotation: "soon"}, DefaultPollInterval, "ignoring"},
+		"negative":  {map[string]string{PollIntervalAnnotation: "-1m"}, DefaultPollInterval, "ignoring"},
+		"zero":      {map[string]string{PollIntervalAnnotation: "0s"}, DefaultPollInterval, "ignoring"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			g := NewWithT(t)
-			fx := newFixture(t, faults{})
 			greeting := newGreeting()
 			greeting.Annotations = tc.annotations
-			g.Expect(fx.r.pollInterval(greeting)).To(Equal(tc.want))
-			if tc.warns {
-				g.Expect(fx.drainEvents()).To(ContainSubstring("Warning InvalidPollInterval"))
+			got, warning := pollInterval(greeting)
+			g.Expect(got).To(Equal(tc.want))
+			if tc.warning == "" {
+				g.Expect(warning).To(BeEmpty())
 			} else {
-				g.Expect(fx.drainEvents()).To(BeEmpty())
+				g.Expect(warning).To(ContainSubstring(tc.warning))
 			}
 		})
 	}
+}
+
+func TestReconcileWarnsAboutABadPollIntervalOncePerGeneration(t *testing.T) {
+	g := NewWithT(t)
+	greeting := newGreeting()
+	greeting.Annotations = map[string]string{PollIntervalAnnotation: "1ms"}
+	fx := newFixture(t, faults{}, greeting)
+
+	res, err := fx.reconcile(greeting)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(res.RequeueAfter).To(Equal(MinPollInterval))
+	g.Expect(fx.drainEvents()).To(ContainSubstring("Warning InvalidPollInterval"))
+
+	// Same generation again: still clamped, no second Event.
+	res, err = fx.reconcile(greeting)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(res.RequeueAfter).To(Equal(MinPollInterval))
+	g.Expect(fx.drainEvents()).NotTo(ContainSubstring("InvalidPollInterval"))
+
+	// A new generation warns again.
+	got := fx.greeting(t)
+	got.Generation++
+	g.Expect(fx.c.Update(context.Background(), got)).To(Succeed())
+	_, err = fx.reconcile(greeting)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(fx.drainEvents()).To(ContainSubstring("Warning InvalidPollInterval"))
+}
+
+func TestReconcileRequeuesQuietlyOnConflicts(t *testing.T) {
+	conflict := apierrors.NewConflict(schema.GroupResource{Resource: "greetings"}, "hello", errBoom)
+	cases := map[string]faults{
+		"finalizer": {updateGreeting: conflict},
+		"configmap": {createConfigMap: conflict},
+		"status":    {updateStatus: conflict},
+	}
+	for name, f := range cases {
+		t.Run(name, func(t *testing.T) {
+			g := NewWithT(t)
+			fx := newFixture(t, f, newGreeting())
+			before := testutil.ToFloat64(reconcileTotal.WithLabelValues("error"))
+			res, err := fx.reconcile(newGreeting())
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(res.RequeueAfter).To(Equal(conflictRequeue))
+			g.Expect(fx.drainEvents()).NotTo(ContainSubstring("Warning"))
+			g.Expect(testutil.ToFloat64(reconcileTotal.WithLabelValues("error"))).To(Equal(before))
+		})
+	}
+}
+
+func TestReconcileReAdoptsAReleasedConfigMap(t *testing.T) {
+	g := NewWithT(t)
+	retained := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "hello", Namespace: "default", Labels: map[string]string{ManagedByLabel: ManagedByValue}},
+		Data:       map[string]string{MessageKey: "old"},
+	}
+	fx := newFixture(t, faults{}, newGreeting(), retained)
+	_, err := fx.reconcile(newGreeting())
+	g.Expect(err).NotTo(HaveOccurred())
+
+	cm := &corev1.ConfigMap{}
+	g.Expect(fx.c.Get(context.Background(), client.ObjectKeyFromObject(retained), cm)).To(Succeed())
+	g.Expect(cm.Data[MessageKey]).To(Equal("Hello"))
+	g.Expect(metav1.IsControlledBy(cm, fx.greeting(t))).To(BeTrue())
+}
+
+func TestReconcileDoesNotStealAControlledLabelledConfigMap(t *testing.T) {
+	g := NewWithT(t)
+	other := newGreeting()
+	other.UID = "uid-other"
+	s := testScheme(t)
+	cm := ownedConfigMap(other, s)
+	cm.Labels = map[string]string{ManagedByLabel: ManagedByValue}
+	fx := newFixture(t, faults{}, newGreeting(), cm)
+	_, err := fx.reconcile(newGreeting())
+	g.Expect(err).To(MatchError(ErrNameCollision))
+}
+
+func TestFinalizeEmitsNoReleaseEventForAnObjectItDidNotRelease(t *testing.T) {
+	g := NewWithT(t)
+	greeting := deleting(samplev1alpha1.DeletionPolicyDelete)
+	foreign := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "hello", Namespace: "default"}}
+	fx := newFixture(t, faults{}, greeting.DeepCopy(), foreign)
+	greeting = fx.greeting(t)
+	g.Expect(fx.r.finalize(context.Background(), greeting)).To(Succeed())
+	g.Expect(fx.drainEvents()).To(BeEmpty())
 }
 
 // deleting returns a Greeting that is being deleted and still has its finalizer.

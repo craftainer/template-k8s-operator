@@ -118,6 +118,7 @@ replace:
   - scripts/bundle.sh
   - scripts/catalog.sh
   - scripts/e2e.sh
+  - scripts/extras/check-absent.sh
   - scripts/extras/check-dispatch.sh
   - scripts/extras/refs.sh
   - scripts/extras/stage-chart.sh

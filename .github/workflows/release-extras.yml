@@ -14,9 +14,11 @@
 # point for it (NX1/NX4), this file moves into release.yml and a tombstone line
 # in the sync manifest removes it from every operator.
 #
-# Safe to re-run for the same tag: one run per tag at a time (`concurrency`);
-# a chart or image tag that already exists is pushed again with the same
-# content-addressed layers, and signing again only adds a signature.
+# One run per tag at a time (`concurrency`). It never publishes over an
+# existing tag: registry tags are mutable, so a second push of the chart,
+# bundle or catalog under the same version would give it a new digest and
+# orphan the signatures and attestations of the first. The publish job
+# therefore fails if any of the three tags exists (scripts/extras/check-absent.sh).
 #
 # Needs the repository variable OCI_REGISTRY=ghcr.io (the same one the image
 # release uses). The signing and attestation happen in sign-attest.yml.
@@ -160,6 +162,14 @@ jobs:
           fi
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
+      - name: Refuse to publish over an existing tag
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CHART: ${{ steps.refs.outputs.chart }}
+          BUNDLE: ${{ steps.refs.outputs.bundle }}
+          CATALOG: ${{ steps.refs.outputs.catalog }}
+        run: scripts/extras/check-absent.sh "$VERSION" "$CHART" "$BUNDLE" "$CATALOG"
+
       - name: Package and push the Helm chart
         id: chart
         env:
@@ -248,7 +258,7 @@ jobs:
       packages: write
       id-token: write
       attestations: write
-    uses: ./.github/workflows/sign-attest.yml
+    uses: $/.github/workflows/sign-attest.yml
     with:
       subject-name: ${{ matrix.subject.name }}
       subject-digest: ${{ matrix.subject.digest }}

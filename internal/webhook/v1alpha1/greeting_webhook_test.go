@@ -36,6 +36,14 @@ func TestValidator(t *testing.T) {
 	_, err = v.ValidateUpdate(context.Background(), greetingWith("Hello"), greetingWith(" "))
 	g.Expect(err).To(MatchError(ErrBlankMessage))
 
+	// An object being deleted is always admitted, so finalizer removal is
+	// never blocked.
+	deleting := greetingWith(" ")
+	now := metav1.Now()
+	deleting.DeletionTimestamp = &now
+	_, err = v.ValidateUpdate(context.Background(), greetingWith("Hello"), deleting)
+	g.Expect(err).NotTo(HaveOccurred())
+
 	_, err = v.ValidateDelete(context.Background(), greetingWith(""))
 	g.Expect(err).NotTo(HaveOccurred())
 }

@@ -258,17 +258,22 @@ func serveProbes(ctx context.Context, addr string) error {
 	mux.Handle("/readyz", ok)
 	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 
+	// The shutdown goroutine waits on runCtx, which is cancelled on every way
+	// out of this function, so it cannot outlive a failed ListenAndServe.
+	runCtx, stop := context.WithCancel(ctx)
+	defer stop()
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		<-ctx.Done()
+		<-runCtx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(shutdownCtx)
 	}()
 	err := srv.ListenAndServe()
+	stop()
+	<-done
 	if errors.Is(err, http.ErrServerClosed) {
-		<-done
 		return nil
 	}
 	return err

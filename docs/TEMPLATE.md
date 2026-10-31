@@ -803,7 +803,19 @@ release extras. The sync state names `craftainer/template-docker`.
   and watches it. It publishes the chart, bundle and catalog to GHCR and
   signs (cosign, keyless) and attests (GitHub artifact attestations) through
   `sign-attest.yml`. See ADR 0003 for why it is not automatic and what it does
-  not cover (provenance of the image index, multi-bundle catalogs).
+  not cover (provenance of the image index, multi-bundle catalogs). It never
+  publishes over an existing tag: if the chart, bundle or catalog tag for the
+  version exists, the run fails (`scripts/extras/check-absent.sh`), because a
+  re-push would orphan the signatures and attestations of the first.
+- **Sample controller conventions.** Operators copy `internal/controller`.
+  A ConfigMap is taken over only if the Greeting controls it, or if it has no
+  controller and carries the `craftainer.dev/managed-by` label (one released by
+  `deletionPolicy: Retain`, which a re-created Greeting of the same name
+  re-adopts); anything else is a name collision and is left alone. The
+  `craftainer.dev/poll-interval` annotation is clamped to at least 10s and a
+  bad value warns once per generation. A 409 from a write requeues after a
+  second, without an error or an Event. The validating webhook always admits
+  updates of an object being deleted, so finalizer removal is never blocked.
 - **Syncing.** The template follows `template-docker`; an operator follows this
   template. `.github/template-sync-state.json` in a new operator must name this
   repository and the tag it was created at.

@@ -58,6 +58,55 @@ class CheckDispatch(unittest.TestCase):
         self.assertNotEqual(run(["scripts/extras/check-dispatch.sh"], env={"RELEASE_TAG": ""}).returncode, 0)
 
 
+class CheckAbsent(unittest.TestCase):
+    """check-absent.sh against a fake curl that answers like ghcr.io."""
+
+    def check(self, code, *refs):
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = Path(tmp) / "curl"
+            fake.write_text(
+                "#!/usr/bin/env bash\n"
+                'case "$*" in\n'
+                '  *"/token?"*) echo \'{"token":"t"}\' ;;\n'
+                f'  *) printf "%s" "{code}" ;;\n'
+                "esac\n"
+            )
+            fake.chmod(0o755)
+            env = {"PATH": f"{tmp}:{os.environ['PATH']}", "GITHUB_TOKEN": "x"}
+            return run(["scripts/extras/check-absent.sh", "1.0.0", *(refs or ("ghcr.io/o/charts/c",))], env=env)
+
+    def test_absent_tags_pass(self):
+        self.assertEqual(self.check(404, "ghcr.io/o/charts/c", "ghcr.io/o/b").returncode, 0)
+
+    def test_an_existing_tag_is_refused(self):
+        r = self.check(200)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("already exists", r.stderr)
+
+    def test_an_unclear_answer_is_refused(self):
+        r = self.check(500)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("HTTP 500", r.stderr)
+
+    def test_other_registries_are_refused(self):
+        self.assertEqual(self.check(404, "docker.io/o/b").returncode, 2)
+
+    def test_usage_and_token(self):
+        self.assertEqual(run(["scripts/extras/check-absent.sh", "1.0.0"]).returncode, 2)
+        env = {k: v for k, v in os.environ.items() if k != "GITHUB_TOKEN"}
+        r = subprocess.run(["scripts/extras/check-absent.sh", "1.0.0", "ghcr.io/o/b"], cwd=ROOT, env=env, capture_output=True, text=True, check=False)
+        self.assertNotEqual(r.returncode, 0)
+
+    def test_the_publish_job_runs_it_before_any_push(self):
+        text = self.code_of("release-extras.yml")
+        guard = text.index("check-absent.sh")
+        self.assertLess(guard, text.index("helm push"))
+        self.assertLess(guard, text.index("--push"))
+
+    def code_of(self, name):
+        return "\n".join(line for line in (WORKFLOWS / name).read_text().splitlines() if not line.lstrip().startswith("#"))
+
+
 class Refs(unittest.TestCase):
     def refs(self, **env):
         base = {"OCI_REGISTRY": "ghcr.io", "GITHUB_REPOSITORY": "Craftainer-Labs/Operator-DB"}
@@ -264,7 +313,7 @@ class Workflows(unittest.TestCase):
         self.assertNotIn("id-token", publish)
         self.assertNotIn("attestations", publish)
         self.assertNotIn("cosign", publish)
-        self.assertIn("uses: ./.github/workflows/sign-attest.yml", extras)
+        self.assertIn("uses: $/.github/workflows/sign-attest.yml", extras)
 
     def test_sign_attest_is_a_reusable_workflow(self):
         text = self.code(self.read("sign-attest.yml"))
