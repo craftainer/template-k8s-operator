@@ -264,7 +264,7 @@ class Workflows(unittest.TestCase):
         self.assertNotIn("id-token", publish)
         self.assertNotIn("attestations", publish)
         self.assertNotIn("cosign", publish)
-        self.assertIn("uses: $/.github/workflows/sign-attest.yml", extras)
+        self.assertIn("uses: ./.github/workflows/sign-attest.yml", extras)
 
     def test_sign_attest_is_a_reusable_workflow(self):
         text = self.code(self.read("sign-attest.yml"))

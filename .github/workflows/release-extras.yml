@@ -248,7 +248,7 @@ jobs:
       packages: write
       id-token: write
       attestations: write
-    uses: $/.github/workflows/sign-attest.yml
+    uses: ./.github/workflows/sign-attest.yml
     with:
       subject-name: ${{ matrix.subject.name }}
       subject-digest: ${{ matrix.subject.digest }}
