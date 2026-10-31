@@ -7,7 +7,13 @@
   Dockerfile/compose image tag repo-wide (scanned recursively, unlike
   Dependabot), and the `# renovate:` comment-annotated version pins in
   `.devcontainer/Dockerfile` (and an instance's top-level runtime
-  `Dockerfile`). `Makefile` and `image.mk` `*_VERSION` pins carry the same
+  `Dockerfile`), `operator.mk`'s tool pins, the cert-manager pin in
+  `scripts/e2e.sh` and the cosign pin in `sign-attest.yml`. The Go toolchain
+  (`10-go.sh`, the Dockerfile's `GO_VERSION`, go.mod's `toolchain`) is one
+  "go toolchain" group, not automerged, and so is the Kubernetes stack
+  (controller-runtime, controller-tools, client libraries, kubebuilder, kind);
+  go.mod's `go` directive is never bumped automatically. `gomodTidy` runs
+  `go mod tidy` on module updates. `Makefile` and `image.mk` `*_VERSION` pins carry the same
   marker; the hadolint image in `.pre-commit-config.yaml`, the Trivy
   image in `scripts/image-scan.sh` and the skopeo image in the `Makefile`
   (the last two by tag and digest) have their own regex managers. An instance's own `renovate.json` additions cover its

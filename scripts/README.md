@@ -40,6 +40,24 @@
   `dist/` mounted at `/dist`; used by `make publish` and `image-smoke.sh`.
 - `check-dockerfile-versions.sh ARG...` — fails when a named `ARG` default
   differs between `.devcontainer/Dockerfile` and the top-level `Dockerfile`.
+- `develop.d/10-go.sh`, `develop.d/20-k8s-tools.sh`,
+  `post-create.d/10-go-download.sh` — the devcontainer's pinned,
+  checksum-verified tools: Go, golangci-lint and govulncheck
+  (`template-go-module`'s installer); kubectl, kind, helm, kustomize, chainsaw,
+  kubebuilder, operator-sdk and opm (`20-k8s-tools.sh [tool...]`, with
+  `INSTALL_DIR` for CI); and `go mod download` after create.
+- `go-coverage.sh`, `govulncheck.sh`, `check-generated.sh`,
+  `check-go-version.sh`, `check-chart-sync.sh` — the Go and Kubernetes hooks'
+  entry points (`docs/TEMPLATE.md`, "Kubernetes operator template notes").
+- `bundle.sh`, `catalog.sh` — the OLM bundle for an image digest and version,
+  and a single-bundle file-based catalog for it (`render`, `validate`,
+  `dockerfile`).
+- `e2e.sh` — the kind + Chainsaw end-to-end run, always followed by teardown.
+- `extras/` — what `release-extras.yml` calls: `check-dispatch.sh` (the
+  dispatch guard), `refs.sh` (artifact names), `stage-chart.sh` (the chart with
+  the image digest pinned).
+- `test_operator_scripts.py` — offline tests of all of the above and of the
+  workflows' shape, run by the `operator-scripts-test` hook.
 
 ## Do
 
@@ -52,5 +70,6 @@
 
 ## Don't
 
-- Add a language runtime or stack-specific tool here — that belongs in the
-  instance's own layer (`develop.d/`), not the base template's.
+- Add a language runtime or stack-specific tool to `develop.sh` — that
+  belongs in the instance's own layer (`develop.d/`), as this template's Go
+  and Kubernetes tools do.

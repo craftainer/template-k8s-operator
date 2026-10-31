@@ -1,84 +1,62 @@
 # syntax=docker/dockerfile:1.28
-# Skeleton runtime image (builder -> runner), the repo's only top-level
-# Dockerfile; an instance replaces the app parts and keeps the shape. The
-# devcontainer image is the base-owned .devcontainer/Dockerfile's `develop`
-# stage. As shipped it serves GET /health/live on port 8000 (busybox httpd)
-# so `make release-check` has a real image to smoke-test; template-docker
-# releases itself through that contract.
+# The manager image: a static Go binary on distroless (builder -> runner).
+# `runner` is the release stage (image.mk's TARGET). Both bases are pinned by
+# digest as well as tag (the digest is of the multi-arch index); Renovate's
+# dockerfile manager bumps tag and digest together.
+#
+# The runner has no shell, no package manager and no home directory to write
+# to; the binary is static (CGO_ENABLED=0) and writes nothing, so the image
+# runs under any UID the platform assigns (e.g. OpenShift's restricted SCC,
+# `docker run --user 12345`) as well as the image's own nonroot 65532.
 
 # Also declared in .devcontainer/Dockerfile; scripts/check-dockerfile-versions.sh
 # keeps the two equal.
 ARG DEBIAN_VERSION=trixie
-# Both stages pin the base image by digest as well as tag (the digest is of
-# the multi-arch index); Renovate's dockerfile manager bumps tag and digest.
 
-ARG APP_UID=1000
-
-ARG SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
-ARG SSL_CERT_DIR=/etc/ssl/certs
+# Keep in step with scripts/develop.d/10-go.sh's GO_VERSION and go.mod's
+# toolchain line (scripts/check-go-version.sh checks all three).
+# renovate: datasource=docker depName=golang
+ARG GO_VERSION=1.27.3
 
 ########################################
-# builder -- produces what the runner needs (here: a static busybox)
+# builder -- compiles the manager. Runs on the build host's platform and
+# cross-compiles, so a multi-arch build needs no emulation.
 ########################################
-FROM debian:${DEBIAN_VERSION}-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad AS builder
-ARG SSL_CERT_FILE
-ARG SSL_CERT_DIR
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-${DEBIAN_VERSION}@sha256:c65ecfe613b539ac74c62a4c3b2c27e8f8a6076384c8f27e8a3c0f3be17cc385 AS builder
+ARG TARGETOS
+ARG TARGETARCH
+# GOFIPS140 selects the Go cryptographic module the binary links (EB-14):
+# pass --build-arg GOFIPS140=v1.0.0 for the frozen, validated one, and run
+# with GODEBUG=fips140=on to enforce it. Empty keeps Go's default.
+ARG GOFIPS140=
 
-ENV SSL_CERT_FILE=${SSL_CERT_FILE} \
-    SSL_CERT_DIR=${SSL_CERT_DIR} \
-    DEBIAN_FRONTEND=noninteractive
+WORKDIR /workspace
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
-# Debian mirrors drop superseded package versions, so pinning one breaks
-# rebuilds; the base image is pinned by digest instead.
-# hadolint ignore=DL3008
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends busybox-static \
-    && rm -rf /var/lib/apt/lists/*
+COPY api/ api/
+COPY cmd/ cmd/
+COPY internal/ internal/
 
-WORKDIR /build
-RUN mkdir -p www/health \
-    && printf 'ok\n' > www/health/live
-# Read-only modes as numeric values, applied here per kind: the runner COPY
-# keeps them. The symbolic `COPY --chmod=u=rX,g=rX,o=` form left files
-# unreadable on GitHub's stock-runner Docker (template-fastapi's smoke) even
-# with the dockerfile:1.28 frontend; numeric modes work everywhere.
-# Files that are executable stay so (0550), the rest are 0440.
-RUN find . -type d -exec chmod 0550 {} + \
-    && find . -type f ! -perm /111 -exec chmod 0440 {} + \
-    && find . -type f -perm /111 -exec chmod 0550 {} +
+# -trimpath and -s -w: reproducible, small; the module cache is a build cache
+# only. GOFLAGS=-mod=readonly fails the build if go.mod/go.sum are not tidy.
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} GOFIPS140=${GOFIPS140:-} GOFLAGS=-mod=readonly \
+    go build -trimpath -ldflags="-s -w" -o /out/manager ./cmd
 
 ########################################
-# runner -- minimal runtime image. Runs under an arbitrary UID (e.g.
-# OpenShift's restricted SCC) as well as a fixed one: see runner-setup.sh.
+# runner -- the image that ships.
 ########################################
-FROM debian:${DEBIAN_VERSION}-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad AS runner
-ARG APP_UID
-ARG SSL_CERT_FILE
-ARG SSL_CERT_DIR
-# Set by `make build` through BUILD_ARGS in image.mk when an instance wants
-# them; empty otherwise.
+FROM gcr.io/distroless/static-debian13:nonroot@sha256:18f4cc26c9ffa7f20a359298be7deadac5c607c8e03a02b8119f1a5fc2f82c99 AS runner
+# Set by `make build` through BUILD_ARGS in image.mk; empty otherwise.
 ARG APP_VERSION=
 ARG APP_COMMIT=
-
 ENV APP_VERSION=${APP_VERSION} \
-    APP_COMMIT=${APP_COMMIT} \
-    HOME=/home/appuser \
-    SSL_CERT_FILE=${SSL_CERT_FILE} \
-    SSL_CERT_DIR=${SSL_CERT_DIR}
+    APP_COMMIT=${APP_COMMIT}
 
-COPY --from=builder /bin/busybox /usr/local/bin/busybox
+COPY --from=builder /out/manager /manager
 
-# Create the user and the few writable directories first (home, /app/data),
-# then copy app code read-only on top (0550 dirs / 0440 files, set in the
-# builder; see there): no recursive chgrp/chmod layer, and the runtime user
-# can't modify what it runs.
-COPY scripts/runner-setup.sh /tmp/runner-setup.sh
-COPY scripts/runner-setup.d/ /tmp/runner-setup.d/
-RUN bash /tmp/runner-setup.sh "$APP_UID" && rm -rf /tmp/runner-setup.sh /tmp/runner-setup.d
-
-WORKDIR /app
-COPY --from=builder --chown=${APP_UID}:0 /build/ /app/
-
-USER $APP_UID
-EXPOSE 8000
-ENTRYPOINT ["busybox", "httpd", "-f", "-p", "8000", "-h", "/app/www"]
+# 8081 probes, 8443 metrics (HTTPS, authenticated), 9443 webhooks.
+EXPOSE 8081 8443 9443
+USER 65532:65532
+ENTRYPOINT ["/manager"]

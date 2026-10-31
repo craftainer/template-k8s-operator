@@ -43,12 +43,15 @@ artifact on top of the shape described here.
   (`build`/`sbom`/`release-assets`/`publish`); in `template-docker` the
   image implementation — see "Release: a Makefile contract" and "Image
   layer (template-docker)" below.
+- `operator.mk`, `PROJECT`, `api/`, `cmd/`, `internal/`, `config/`, `charts/`,
+  `test/e2e/`, `go.mod` — the operator layer; see "Kubernetes operator
+  template notes" below.
 - `Dockerfile`, `image.mk`, `.dockerignore`, `scripts/image-smoke.sh`,
   `scripts/runner-setup.sh`, `scripts/runner-setup.d/`,
   `scripts/check-dockerfile-versions.sh` — the image layer; see "Image
   layer (template-docker)" below.
 - `.pre-commit-config.yaml` — git hooks, run by `prek` or `pre-commit`;
-  language-agnostic hooks only.
+  the base set plus the image layer's and, here, the Go and Kubernetes gates.
 - `CLAUDE.md` — the AI-assisted coding workflow Claude Code follows in
   this repository; general conventions live in this file and each
   directory's own `README.md` instead.
@@ -698,6 +701,112 @@ constraint that isn't visible locally. Don't add a comment that just
 restates what the following line already says in code — if removing a
 comment loses no information, remove it. Every existing comment in this
 repository follows this rule; keep new ones held to the same bar.
+
+## Kubernetes operator template notes
+
+`template-k8s-operator` extends `template-docker` for a Go operator built on
+kubebuilder v4 (the first instances are `operator-db`, `-s3`, `-mqtt`, `-cache`
+and `-oidc`). The sections above still apply; these are the operator-specific
+additions. [ADR 0002](adrs/0002-kubernetes-operator-template.md) records the
+design and [ADR 0003](adrs/0003-release-extras-and-supply-chain.md) the
+release extras. The sync state names `craftainer/template-docker`.
+
+- **The root `Makefile` is template-docker's** and stays byte-identical. The
+  operator's targets live in `operator.mk`, included from `image.mk` (run
+  `make operator-help`); they avoid the names of the image contract's targets
+  (`build` is `go-build`, the image build for the e2e is `e2e-image`).
+  `image.mk` only adds prerequisites to `release-check`: `helm-lint`,
+  `bundle-validate` and `generated-current`.
+- **Layout (instance-owned scaffold).** `go.mod`, `go.sum`, every `*.go` file,
+  `PROJECT`, `config/`, `charts/` and `test/e2e/operator/` are `ignore` tier.
+  The sample API is `api/v1alpha1` (`Greeting`), `internal/controller`,
+  `internal/webhook/v1alpha1`; `internal/app` builds the manager and
+  `cmd/main.go` only calls it. Directories that hold no `.go` file other than
+  those above go in `.github/template-sync-manifest.local.yml`.
+- **Template-owned tooling (`replace`).** `operator.mk`, the scripts named in
+  the manifest (`go-coverage.sh`, `govulncheck.sh`, `check-*.sh`, `bundle.sh`,
+  `catalog.sh`, `e2e.sh`, `extras/`), `scripts/develop.d/10-go.sh`,
+  `20-k8s-tools.sh`, `scripts/post-create.d/10-go-download.sh`,
+  `test/e2e/chainsaw-config.yaml` and the workflows `e2e.yml`,
+  `release-extras.yml`, `sign-attest.yml`. Change them here and release a new
+  tag. `.pre-commit-config.yaml`, `.golangci.yml`, `.gitignore`,
+  `.dockerignore`, `.github/renovate.json`, `README.md` and the docs are
+  `merge` tier.
+- **Toolchain.** `10-go.sh` is `template-go-module`'s: Go from go.dev
+  (SHA-256 from go.dev's index), golangci-lint v2 (checked against the release
+  checksums), govulncheck. `20-k8s-tools.sh` adds kubectl, kind, helm,
+  kustomize, chainsaw, kubebuilder, operator-sdk and opm, each checked against
+  the SHA-256 its release publishes; run it with `INSTALL_DIR=...` and tool
+  names to install some of them elsewhere (CI does). controller-gen and
+  setup-envtest are `go install`ed at pinned versions into `bin/`.
+  `scripts/check-go-version.sh` keeps `GO_VERSION` in `10-go.sh`, the
+  Dockerfile's `ARG GO_VERSION` and go.mod's `toolchain` equal.
+- **Checks** (`prek run --all-files --hook-stage manual` runs all):
+
+  | Hook | Command | Stage |
+  |---|---|---|
+  | `golangci-fmt`, `golangci-lint` | `golangci-lint fmt --diff`, `run` | commit |
+  | `go-mod-tidy` | `go mod tidy -diff` | push |
+  | `generated-current` | `scripts/check-generated.sh` (controller-gen output is current) | push |
+  | `go-test-coverage` | `scripts/go-coverage.sh`: unit + envtest, `-race`, `-coverpkg=./...`, then the gate | push |
+  | `govulncheck` | `scripts/govulncheck.sh` (the built manager binary; `GOVULNCHECK_MODE=source` for source mode) | push |
+  | `check-go-version` | `scripts/check-go-version.sh` | commit |
+  | `helm-lint` | `make helm-lint`: `helm lint --strict`, default and air-gapped renders, chart matches `config/` | commit |
+  | `bundle-validate` | `make bundle-validate`: `operator-sdk bundle validate`, `opm validate` | push |
+  | `operator-scripts-test` | `scripts/test_operator_scripts.py` | commit |
+  | `zizmor` | workflow audits, no suppressions | commit |
+
+  The e2e (`make test-e2e`, `.github/workflows/e2e.yml`) is not a hook.
+- **Coverage gate.** `COVERAGE_MIN` (default 100) over every package with
+  `-coverpkg=./...`, minus `zz_generated.*` and `cmd/`. The envtest suites need
+  kube-apiserver and etcd: `KUBEBUILDER_ASSETS`, or `make envtest-assets`
+  (setup-envtest at `ENVTEST_VERSION`, the Kubernetes release
+  `ENVTEST_K8S_VERSION`; keep the latter at `k8s.io/api`'s minor).
+  `internal/app` tests share a process, so they pass `skipNameValidation`
+  (controller-runtime rejects a second controller of the same name).
+- **Image.** `Dockerfile` is a builder on `golang:<GO_VERSION>-<DEBIAN_VERSION>`
+  and a `runner` on distroless static `nonroot`, both by digest. The binary is
+  static; nothing writes to disk. `image.mk` smoke-tests the image with
+  `MANAGER_PROBE_ONLY=true` as an arbitrary UID, read-only, capabilities
+  dropped. `--build-arg GOFIPS140=v1.0.0` selects Go's validated FIPS module
+  (run with `GODEBUG=fips140=on`).
+- **e2e topology.** `scripts/e2e.sh` needs docker, kind, kubectl, helm and
+  chainsaw on `PATH`. It names the cluster per run, uses
+  `kindest/node:v1.37.0@sha256:a1ed56cf...` (kind v0.33.0), installs
+  cert-manager from a checksummed release manifest, loads the image, runs
+  Chainsaw and always deletes the cluster and the `kind` network. Backends for
+  an instance's e2e run as containers on the `kind` network, started before
+  Chainsaw by the instance's own script, and are reached by container name.
+  Run it when at least 2 GB are free. `E2E_KEEP=1` keeps the cluster.
+- **Helm chart.** `charts/chart` was generated with `kubebuilder edit
+  --plugins=helm/v2-alpha --output-dir=charts` and is hand-edited since:
+  `global.imageRegistry`, `manager.image.{registry,repository,digest,tag}` and
+  the `template-k8s-operator.image` helper (manager template and `_helpers.tpl`
+  are the edited files). To pick up a changed API or RBAC marker, run `make
+  build-installer`, regenerate into a scratch directory, and merge the CRD,
+  RBAC and webhook templates; `scripts/check-chart-sync.sh` (via `make
+  helm-lint`) fails on a stale CRD or manager role. Re-running the plugin in
+  place regenerates the manager template and drops the image helper.
+- **OLM bundle and catalog.** `make bundle BUNDLE_IMG=<image@sha256:...>
+  BUNDLE_VERSION=x.y.z` builds `./bundle` from `config/manifests` (no
+  cert-manager: OLM issues the webhook certificate), pinning the manager image
+  by digest and listing it in `relatedImages`. The CSV base is
+  `config/manifests/bases/*.clusterserviceversion.yaml`: `AllNamespaces` only,
+  `minKubeVersion`, the `disconnected` infrastructure feature. Add
+  `proxy-aware` and `fips-compliant` when true. `scripts/catalog.sh render`
+  makes a single-bundle file-based catalog; `make bundle-validate` runs the
+  offline checks. `operator-sdk` warns about an "events" API removed in
+  Kubernetes 1.25 for the `events.k8s.io` rule; it is a false positive for
+  `events.k8s.io/v1`. OLM v1 needs cert-manager for bundles with webhooks.
+- **Release extras.** `release-extras.yml` is dispatch-only; the release lander
+  runs `gh workflow run release-extras.yml -f tag=vX.Y.Z` after each `Release`
+  and watches it. It publishes the chart, bundle and catalog to GHCR and
+  signs (cosign, keyless) and attests (GitHub artifact attestations) through
+  `sign-attest.yml`. See ADR 0003 for why it is not automatic and what it does
+  not cover (provenance of the image index, multi-bundle catalogs).
+- **Syncing.** The template follows `template-docker`; an operator follows this
+  template. `.github/template-sync-state.json` in a new operator must name this
+  repository and the tag it was created at.
 
 ## Do
 
