@@ -32,7 +32,7 @@ OPERATOR_SDK ?= operator-sdk
 OPM ?= opm
 
 # renovate: datasource=go depName=sigs.k8s.io/controller-tools
-CONTROLLER_TOOLS_VERSION ?= v0.22.0
+CONTROLLER_TOOLS_VERSION ?= v0.23.0
 # setup-envtest is versioned with controller-runtime: use the exact release
 # this module requires (go.mod), so the two never drift and nothing floats.
 ENVTEST_VERSION ?= $(shell go list -m -f '{{.Version}}' sigs.k8s.io/controller-runtime)
