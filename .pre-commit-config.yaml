@@ -139,7 +139,7 @@ repos:
       # RUST_VERSION) to this entry.
       - id: check-dockerfile-versions
         name: check-dockerfile-versions (ARG defaults match across Dockerfiles)
-        entry: bash scripts/check-dockerfile-versions.sh DEBIAN_VERSION
+        entry: bash scripts/check-dockerfile-versions.sh SSL_CERT_FILE SSL_CERT_DIR
         language: system
         # Also when the check itself, or this entry (the ARG list), changes.
         files: ^((\.devcontainer/)?Dockerfile|scripts/check-dockerfile-versions\.sh|\.pre-commit-config\.yaml)$
@@ -180,7 +180,7 @@ repos:
         name: image-scripts-test (Makefile and scripts/ behaviour)
         entry: bash scripts/test-image-scripts.sh
         language: system
-        files: ^(Makefile|scripts/(check-dockerfile-versions|image-scan|image-dast|image-smoke|skopeo|test-image-scripts)\.sh)$
+        files: ^(Makefile|scripts/(check-dockerfile-versions|image-scan|image-dast|image-smoke|skopeo|skopeo-dir|test-image-scripts)\.sh)$
         pass_filenames: false
         stages: [pre-commit, manual]
 
