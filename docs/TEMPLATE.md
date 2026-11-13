@@ -1037,7 +1037,9 @@ release extras. The sync state names `craftainer/template-docker`.
 - **e2e topology.** `scripts/e2e.sh` needs docker, kind, kubectl, helm and
   chainsaw on `PATH`. It names the cluster per run, uses
   `kindest/node:v1.37.0@sha256:a1ed56cf...` (kind v0.33.0), installs
-  cert-manager from a checksummed release manifest, loads the image, runs
+  cert-manager from a checksummed release manifest and waits (3 minutes at
+  most) for its webhook to admit a server-side dry-run Issuer and Certificate,
+  loads the image, runs
   Chainsaw and always deletes the cluster and the `kind` network. Backends for
   an instance's e2e run as containers on the `kind` network, started before
   Chainsaw by the instance's own script, and are reached by container name.
