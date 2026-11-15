@@ -11,7 +11,8 @@
   does not, so the step is skipped here) and the hooks step forwards its
   `SEMVER_RELEASE_TYPE` into the container (the step appends the script's
   output to `$GITHUB_ENV` only if it is empty or exactly
-  `SEMVER_RELEASE_TYPE=<lowercase word>`, failing otherwise), so a `!`-marked PR title (or, on
+  `SEMVER_RELEASE_TYPE=` with an optional `major`, `minor` or `patch`
+  value, failing otherwise), so a `!`-marked PR title (or, on
   `main`, head commit subject) runs `cargo semver-checks` as `major`.
 - `e2e.yml` — on push, pull requests and on demand: installs the pinned
   kubectl, kind, helm and chainsaw (`scripts/develop.d/20-k8s-tools.sh`) on the
