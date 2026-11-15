@@ -14,7 +14,6 @@
   `SEMVER_RELEASE_TYPE=` with an optional `major`, `minor` or `patch`
   value, failing otherwise), so a `!`-marked PR title (or, on
   `main`, head commit subject) runs `cargo semver-checks` as `major`.
-<<<<<<< /home/runner/work/template-k8s-operator/template-k8s-operator/.github/workflows/README.md
 - `e2e.yml` — on push, pull requests and on demand: installs the pinned
   kubectl, kind, helm and chainsaw (`scripts/develop.d/20-k8s-tools.sh`) on the
   runner and runs `scripts/e2e.sh` (kind cluster, cert-manager, Chainsaw). The
@@ -40,8 +39,6 @@
   workflow identity, and (`provenance: true`) a GitHub build-provenance
   attestation pushed to the registry. The only file with `id-token` and
   `attestations` permissions.
-=======
->>>>>>> /tmp/template-new/.github/workflows/README.md
 - `release.yml` — manually triggered, and only from the default branch:
   the `version` job's first step fails on any other ref, and `build`,
   `release` and `publish-packages` repeat the check in their own `if:`.
