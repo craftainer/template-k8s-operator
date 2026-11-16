@@ -17,7 +17,7 @@ KUBECTL_VERSION=1.37.2
 # renovate: datasource=github-releases depName=kubernetes-sigs/kind
 KIND_VERSION=0.33.0
 # renovate: datasource=github-releases depName=helm/helm
-HELM_VERSION=4.3.1
+HELM_VERSION=4.3.2
 # renovate: datasource=github-releases depName=kubernetes-sigs/kustomize extractVersion=^kustomize/v(?<version>.+)$
 KUSTOMIZE_VERSION=5.8.1
 # renovate: datasource=github-releases depName=kyverno/chainsaw

@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.28
+# syntax=docker/dockerfile:1.29@sha256:572cebbc2b15e6f84c077742952674889cb63cd5e9b80abdffcbe587b6f19183
 # The manager image: a static Go binary on distroless (builder -> runner).
 # `runner` is the release stage (image.mk's TARGET). Both bases are pinned by
 # digest as well as tag (the digest is of the multi-arch index); Renovate's
