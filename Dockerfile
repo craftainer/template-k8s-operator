@@ -57,7 +57,7 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
 ########################################
 # runner -- the image that ships.
 ########################################
-FROM gcr.io/distroless/static-debian13:nonroot@sha256:18f4cc26c9ffa7f20a359298be7deadac5c607c8e03a02b8119f1a5fc2f82c99 AS runner
+FROM gcr.io/distroless/static-debian13:nonroot@sha256:8ce6dd87e9823c5b48dcfb2c8604714ccb351ce59607327bcc4957448da279b5 AS runner
 # Set by `make build` through BUILD_ARGS in image.mk; empty otherwise.
 ARG APP_VERSION=
 ARG APP_COMMIT=
