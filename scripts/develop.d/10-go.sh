@@ -13,7 +13,7 @@ GO_VERSION=1.27.4
 # renovate: datasource=github-releases depName=golangci/golangci-lint
 GOLANGCI_LINT_VERSION=2.15.0
 # renovate: datasource=go depName=golang.org/x/vuln
-GOVULNCHECK_VERSION=v1.9.0
+GOVULNCHECK_VERSION=v1.10.0
 
 # A C compiler for `go test -race` (the race detector needs cgo) and for any
 # dependency that uses cgo.
