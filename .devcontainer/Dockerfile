@@ -5,16 +5,16 @@
 # "Instance extension points".
 
 # renovate: datasource=github-releases depName=j178/prek
-ARG PREK_VERSION=0.5.10
+ARG PREK_VERSION=0.5.11
 
 # renovate: datasource=npm depName=@anthropic-ai/claude-code
-ARG CLAUDE_CODE_VERSION=2.1.323
+ARG CLAUDE_CODE_VERSION=2.1.329
 
 # renovate: datasource=github-releases depName=edouard-claude/snip
 ARG SNIP_VERSION=0.26.0
 
 # renovate: datasource=github-releases depName=cli/cli
-ARG GH_VERSION=2.104.0
+ARG GH_VERSION=2.105.0
 
 # uv itself isn't a project dependency manager here -- it's only the
 # mechanism scripts/develop.sh uses to install an exact, checksum-verified
@@ -22,7 +22,7 @@ ARG GH_VERSION=2.104.0
 # package. Left on PATH afterward; harmless, and an instance that adds
 # Python as its own application runtime can reuse it directly.
 # renovate: datasource=github-releases depName=astral-sh/uv
-ARG UV_VERSION=0.13.8
+ARG UV_VERSION=0.13.9
 
 # python3 is infrastructure tooling, not an application runtime this
 # template assumes: prek needs an interpreter to build the venv for any
