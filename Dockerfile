@@ -28,7 +28,7 @@ ARG SSL_CERT_DIR=/etc/ssl/certs
 # builder -- compiles the manager. Runs on the build host's platform and
 # cross-compiles, so a multi-arch build needs no emulation.
 ########################################
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-${DEBIAN_VERSION}@sha256:b54b2639de8c1bfe538ec5ffc45f29b1932235ac5f6d63c059853646677112d9 AS builder
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-${DEBIAN_VERSION}@sha256:430985542100b871e108ccc00e8dcc5eef08ca14ee5825e98ebf563d8ffec4ee AS builder
 ARG TARGETOS
 ARG TARGETARCH
 ARG SSL_CERT_FILE
