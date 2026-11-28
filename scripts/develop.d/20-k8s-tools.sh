@@ -13,7 +13,7 @@
 set -euo pipefail
 
 # renovate: datasource=github-releases depName=kubernetes/kubernetes
-KUBECTL_VERSION=1.37.2
+KUBECTL_VERSION=1.37.3
 # renovate: datasource=github-releases depName=kubernetes-sigs/kind
 KIND_VERSION=0.33.0
 # renovate: datasource=github-releases depName=helm/helm
